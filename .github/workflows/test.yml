@@ -1,0 +1,181 @@
+name: Product API
+
+on:
+  pull_request:
+    branches: [ main, dev ]
+  push:
+    branches: [ main, dev ]
+
+env:
+  API: ProductAPI
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List changed files
+        id: files
+        continue-on-error: true
+        uses: jitterbit/get-changed-files@v1
+
+      - name: Check if python files have changed
+        id: files-changed
+        env:
+          FILES: ${{ steps.files.outputs.all }}
+        run: |
+          if [[ $(python3 -c 'from os import environ;import sys;files=environ.get("FILES", "").split();files=[f for f in files if ".py" in f];print(len(files))') -gt 0 ]];
+          then
+            echo '::set-output name=result::true'
+          else
+            echo '::set-output name=result::false'
+          fi
+
+      - uses: actions/checkout@v2
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        
+      - name: Cache lint results
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        id: lint-cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            reports
+          key: ${{ runner.os }}-lint-${{ env.API }}-${{ hashFiles('src/**.py') }}
+
+      - name: Set up Python 3.9.2
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9.2
+      
+      - name: Cache dependencies
+        id: dependencies-cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cache/pip
+          key: ${{ runner.os }}-dep-${{ env.API }}-${{ hashFiles('**/requirements.txt') }}
+
+      - name: Install dependencies
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        run: |
+          pip3 install --upgrade pip
+          if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+
+      - name: Lint with pylint
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        run: |
+          mkdir -p reports
+          pylint src --exit-zero --rcfile=standard.rc -r n --msg-template="{path}:{line}: [{msg_id}({symbol}), {obj}] {msg}" > reports/lint_report
+
+      - name: Save pylint report
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: pylint-report
+          path: reports/lint_report
+
+      - name: Check files ending with newline
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        run: |
+          function file_ends_with_newline() {
+            if [ ! -s "$1" ]; then
+              return 0
+            else
+              [[ $(tail -c2 "$1" | wc -l) -gt 0 ]]
+            fi
+          }
+
+          function check_files() {
+            for folder in $1/*; do
+              if [ -d $folder ]; then
+                check_files $folder
+              elif [ -f $folder ] && [ ${folder: -3} == ".py" ]; then
+                if ! file_ends_with_newline $folder; then
+                  echo $folder
+                  exit 1
+                fi
+              fi
+            done
+          }
+          check_files $(pwd)/src
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: List changed files
+        id: files
+        continue-on-error: true
+        uses: jitterbit/get-changed-files@v1
+
+      - name: Check if python files have changed
+        id: files-changed
+        env:
+          FILES: ${{ steps.files.outputs.all }}
+        run: |
+          if [[ $(python3 -c 'from os import environ;import sys;files=environ.get("FILES", "").split();files=[f for f in files if ".py" in f or ".yml" in f or ".yaml" in f];print(len(files))') -gt 0 ]];
+          then
+            echo '::set-output name=result::true'
+          else
+            echo '::set-output name=result::false'
+          fi
+
+      - uses: actions/checkout@v2
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        
+      - name: Cache dependencies
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        id: dependencies-cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cache/pip
+          key: ${{ runner.os }}-dep-${{ env.API }}-${{ hashFiles('**/requirements.txt') }}
+        
+      - name: Set up Python 3.9.2
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9.2
+
+      - name: Install dependencies
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        run: |
+          python3 -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+
+      - name: (Unit)Test with pytest
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+          export LOG_CONFIG_FILE=$(pwd)/src/logging.yml
+          mkdir -p xunit-reports
+          mkdir -p coverage-reports
+          python3 -m pytest --junitxml=xunit-reports/xunit-result.xml --cov=utils --cov-report xml:coverage-reports/coverage.xml  tests/unittests
+
+      - name: Cache lint results
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        id: lint-cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            reports
+          key: ${{ runner.os }}-lint-${{ env.API }}-${{ hashFiles('src/**.py') }}
+
+      - name: Scan with Sonar
+        if: ${{ steps.files-changed.outputs.result == 'true' }}
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.projectKey=MatTerra_ProductAPI
+            -Dsonar.python.coverage.reportPaths=coverage-reports/coverage.xml
+            -Dsonar.python.xunit.reportPath=xunit-reports/xunit-result.xml
+            -Dsonar.python.pylint.reportPaths=reports/lint_report
+            -Dsonar.sources=./src
+            -Dsonar.organization=matterra

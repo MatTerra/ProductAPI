@@ -1,0 +1,268 @@
+swagger: "2.0"
+info:
+  description: Product API
+  version: "1.0.0"
+  title: Product API
+consumes:
+  - "application/json"
+produces:
+  - "application/json"
+
+basePath: "/v1/product"
+
+definitions:
+  DefaultErrorResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+        default: false
+      message:
+        type: string
+        default: "Error"
+      data:
+        type: object
+        properties:
+          error:
+            type: string
+  DefaultSuccessResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+        default: true
+      message:
+        type: string
+        default: "OK"
+      data:
+        type: object
+        properties:
+          entity:
+            $ref: '#/definitions/Entity'
+  Entity:
+    type: object
+    properties:
+      id_:
+        type: string
+      creation_datetime:
+        type: string
+      last_modified_datetime:
+        type: string
+      cotas:
+        type: integer
+      price:
+        type: integer
+      remaining_cotas:
+        type: integer
+      name:
+        type: string
+      description:
+        type: string
+      picture_url:
+        type: string
+
+paths:
+  /health:
+    get:
+      operationId: product_api.probe
+      tags:
+        - "Product"
+      summary: "Status check"
+      description: "Verifies if the API is ready."
+      responses:
+        200:
+          description: "API ready"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                default: "OK"
+              data:
+                type: object
+                properties:
+                  available:
+                    type: integer
+        500:
+          description: "API not ready"
+          schema:
+            $ref: '#/definitions/DefaultErrorResponse'
+
+  /:
+    get:
+      operationId: product_api.read
+      tags:
+        - "Product"
+      parameters:
+        - name: length
+          in: query
+          type: integer
+          required: false
+          description: "Amount of products to select"
+        - name: offset
+          in: query
+          type: integer
+          required: false
+          description: "Amount of products to skip"
+        - name: id_
+          in: query
+          type: string
+          required: false
+        - name: cotas
+          in: query
+          type: string
+          required: false
+        - name: cota_price
+          in: query
+          type: string
+          required: false
+        - name: remaining_cotas
+          in: query
+          type: string
+          required: false
+        - name: name
+          in: query
+          type: string
+          required: false
+        - name: description
+          in: query
+          type: string
+          required: false
+      summary: "Lists all Products available"
+      description: |
+        "Lists all Products in the database. May be filtered by all fields."
+      responses:
+        200:
+          description: "Available Product"
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+              message:
+                type: string
+              data:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  results:
+                    type: array
+                    properties:
+                      entities:
+                        $ref: '#/definitions/Entity'
+        500:
+          description: "An error occurred"
+          schema:
+            $ref: '#/definitions/DefaultErrorResponse'
+    post:
+      operationId: product_api.create
+      security:
+        - jwt: ['secret']
+      tags:
+        - "Product"
+      parameters:
+        - name: entity
+          in: body
+          schema:
+            $ref: '#/definitions/Entity'
+          required: true
+          description: "Product to add"
+      summary: "Create a new Product."
+      description: |
+        "Creates a new Product in the database"
+      responses:
+        201:
+          description: "Product created"
+          schema:
+            $ref: '#/definitions/DefaultSuccessResponse'
+        500:
+          description: "An error occurred"
+          schema:
+            $ref: '#/definitions/DefaultErrorResponse'
+
+  /{id_}:
+    get:
+      operationId: product_api.read_one
+      tags:
+        - "Product"
+      parameters:
+        - name: id_
+          in: path
+          type: string
+          required: true
+          description: "Id of product to select"
+      summary: "Recover product"
+      description: |
+        "Select product by Id"
+      responses:
+        200:
+          description: "Product"
+          schema:
+            $ref: '#/definitions/DefaultSuccessResponse'
+        500:
+          description: "An error occurred"
+          schema:
+            $ref: '#/definitions/DefaultErrorResponse'
+    put:
+      operationId: product_api.update
+      security:
+        - jwt: ['secret']
+      tags:
+        - "Product"
+      parameters:
+        - name: id_
+          in: path
+          type: string
+          required: true
+          description: "Id of product to select"
+        - name: entity
+          in: body
+          schema:
+            $ref: '#/definitions/Entity'
+          required: true
+          description: "Product to add"
+      summary: "Update Product"
+      description: |
+        "Update Product in database."
+      responses:
+        200:
+          description: "Product"
+          schema:
+            $ref: '#/definitions/DefaultSuccessResponse'
+        500:
+          description: "An error occurred"
+          schema:
+            $ref: '#/definitions/DefaultErrorResponse'
+    delete:
+      operationId: product_api.delete
+      security:
+        - jwt: ['secret']
+      tags:
+        - "Product"
+      parameters:
+        - name: id_
+          in: path
+          type: string
+          required: true
+          description: "Id of product to select"
+      summary: "Delete Product"
+      description: |
+        "Delete Product in database."
+      responses:
+        200:
+          description: "Product"
+          schema:
+            $ref: '#/definitions/DefaultSuccessResponse'
+        500:
+          description: "An error occurred"
+          schema:
+            $ref: '#/definitions/DefaultErrorResponse'
+
+securityDefinitions:
+  jwt:
+    type: apiKey
+    name: Authorization
+    in: header
+    x-authentication-scheme: Bearer
+    x-bearerInfoFunc: nova_api.auth.decode_jwt_token
